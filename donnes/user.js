@@ -21,7 +21,7 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
   }
 
-  // Le mot de passe est déjà crypté par le frontend, on le stocke tel quel
+  // Stocker le mot de passe en clair
   const result = await pool.query(
     'INSERT INTO utilisateurs (nom_prenom, email, telephone, mot_de_passe) VALUES ($1, $2, $3, $4) RETURNING id, nom_prenom, email, telephone',
     [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, mot_de_passe]
@@ -116,7 +116,6 @@ router.put('/:id', asyncHandler(async (req, res) => {
     if (mot_de_passe.length < 6) {
       return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
     }
-    // Le mot de passe est déjà crypté par le frontend
     query = 'UPDATE utilisateurs SET nom_prenom=$1, email=$2, telephone=$3, mot_de_passe=$4 WHERE id=$5 RETURNING id, nom_prenom, email, telephone';
     values = [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, mot_de_passe, id];
   } else {
@@ -243,7 +242,7 @@ router.post('/login', asyncHandler(async (req, res) => {
 
   const user = result.rows[0];
 
-  // Comparaison directe des mots de passe (déjà cryptés par le frontend)
+  // Comparaison directe des mots de passe en clair
   if (mot_de_passe !== user.mot_de_passe) {
     return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
   }
