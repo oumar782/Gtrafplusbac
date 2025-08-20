@@ -16,8 +16,8 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "https://oumar-diane.vercel.app",
-      "https://backendjournee.vercel.app"
+      "https://g-traf.vercel.app/",
+      "https://admingtraf.vercel.app/"
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
