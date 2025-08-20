@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import bcrypt from 'bcrypt';
 
 const router = Router();
 
@@ -8,16 +9,26 @@ const asyncHandler = fn => (req, res, next) => Promise.resolve(fn(req, res, next
 
 // ===== CREATE =====
 router.post('/', asyncHandler(async (req, res) => {
-  const { nom_prenom, email, telephone } = req.body;
+  const { nom_prenom, email, telephone, mot_de_passe } = req.body;
 
-  if (!nom_prenom || !email) return res.status(400).json({ error: 'nom_prenom et email sont obligatoires' });
+  if (!nom_prenom || !email || !mot_de_passe) {
+    return res.status(400).json({ error: 'nom_prenom, email et mot_de_passe sont obligatoires' });
+  }
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) return res.status(400).json({ error: 'Format email invalide' });
 
+  if (mot_de_passe.length < 6) {
+    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
+  }
+
+  // Crypter le mot de passe
+  const saltRounds = 10;
+  const motDePasseCrypte = await bcrypt.hash(mot_de_passe, saltRounds);
+
   const result = await pool.query(
-    'INSERT INTO utilisateurs (nom_prenom, email, telephone) VALUES ($1, $2, $3) RETURNING *',
-    [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null]
+    'INSERT INTO utilisateurs (nom_prenom, email, telephone, mot_de_passe) VALUES ($1, $2, $3, $4) RETURNING id, nom_prenom, email, telephone',
+    [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, motDePasseCrypte]
   );
 
   res.status(201).json(result.rows[0]);
@@ -35,7 +46,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'id';
   const sortOrder = order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
-  let query = 'SELECT * FROM utilisateurs';
+  let query = 'SELECT id, nom_prenom, email, telephone FROM utilisateurs';
   let countQuery = 'SELECT COUNT(*) FROM utilisateurs';
   const params = [];
 
@@ -68,7 +79,10 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!id || isNaN(parseInt(id))) return res.status(400).json({ error: 'ID invalide' });
 
-  const result = await pool.query('SELECT * FROM utilisateurs WHERE id=$1', [id]);
+  const result = await pool.query(
+    'SELECT id, nom_prenom, email, telephone FROM utilisateurs WHERE id=$1',
+    [id]
+  );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
 
   res.json(result.rows[0]);
@@ -79,7 +93,10 @@ router.get('/email/:email', asyncHandler(async (req, res) => {
   const { email } = req.params;
   if (!email) return res.status(400).json({ error: 'Email requis' });
 
-  const result = await pool.query('SELECT * FROM utilisateurs WHERE email=$1', [email.toLowerCase()]);
+  const result = await pool.query(
+    'SELECT id, nom_prenom, email, telephone FROM utilisateurs WHERE email=$1',
+    [email.toLowerCase()]
+  );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
 
   res.json(result.rows[0]);
@@ -88,7 +105,7 @@ router.get('/email/:email', asyncHandler(async (req, res) => {
 // ===== UPDATE complet =====
 router.put('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { nom_prenom, email, telephone } = req.body;
+  const { nom_prenom, email, telephone, mot_de_passe } = req.body;
 
   if (!id || isNaN(parseInt(id))) return res.status(400).json({ error: 'ID invalide' });
   if (!nom_prenom || !email) return res.status(400).json({ error: 'nom_prenom et email sont obligatoires' });
@@ -96,11 +113,23 @@ router.put('/:id', asyncHandler(async (req, res) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) return res.status(400).json({ error: 'Format email invalide' });
 
-  const result = await pool.query(
-    'UPDATE utilisateurs SET nom_prenom=$1, email=$2, telephone=$3 WHERE id=$4 RETURNING *',
-    [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, id]
-  );
+  let query;
+  let values;
 
+  if (mot_de_passe) {
+    if (mot_de_passe.length < 6) {
+      return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
+    }
+    // Crypter le nouveau mot de passe
+    const motDePasseCrypte = await bcrypt.hash(mot_de_passe, 10);
+    query = 'UPDATE utilisateurs SET nom_prenom=$1, email=$2, telephone=$3, mot_de_passe=$4 WHERE id=$5 RETURNING id, nom_prenom, email, telephone';
+    values = [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, motDePasseCrypte, id];
+  } else {
+    query = 'UPDATE utilisateurs SET nom_prenom=$1, email=$2, telephone=$3 WHERE id=$4 RETURNING id, nom_prenom, email, telephone';
+    values = [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, id];
+  }
+
+  const result = await pool.query(query, values);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
 
   res.json(result.rows[0]);
@@ -114,17 +143,46 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (!id || isNaN(parseInt(id))) return res.status(400).json({ error: 'ID invalide' });
   if (!updates || Object.keys(updates).length === 0) return res.status(400).json({ error: 'Aucun champ à modifier' });
 
-  const allowed = ['nom_prenom', 'email', 'telephone'];
+  const allowed = ['nom_prenom', 'email', 'telephone', 'mot_de_passe'];
   const fields = Object.keys(updates).filter(f => allowed.includes(f));
   if (fields.length === 0) return res.status(400).json({ error: 'Aucun champ valide à modifier' });
 
-  if (updates.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email)) return res.status(400).json({ error: 'Format email invalide' });
+  if (updates.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email)) {
+    return res.status(400).json({ error: 'Format email invalide' });
+  }
 
-  const setClause = fields.map((f, i) => `${f}=$${i+1}`).join(', ');
-  const values = fields.map(f => f==='email'? updates[f].toLowerCase().trim(): updates[f]?.trim() || null);
-  values.push(id);
+  if (updates.mot_de_passe && updates.mot_de_passe.length < 6) {
+    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
+  }
 
-  const result = await pool.query(`UPDATE utilisateurs SET ${setClause} WHERE id=$${values.length} RETURNING *`);
+  const setValues = [];
+  const queryValues = [];
+  let valueIndex = 1;
+
+  for (const field of fields) {
+    if (field === 'email') {
+      setValues.push(`email=$${valueIndex}`);
+      queryValues.push(updates[field].toLowerCase().trim());
+    } else if (field === 'mot_de_passe') {
+      // Crypter le mot de passe
+      const motDePasseCrypte = await bcrypt.hash(updates.mot_de_passe, 10);
+      setValues.push(`mot_de_passe=$${valueIndex}`);
+      queryValues.push(motDePasseCrypte);
+    } else {
+      setValues.push(`${field}=$${valueIndex}`);
+      queryValues.push(updates[field]?.trim() || null);
+    }
+    valueIndex++;
+  }
+
+  queryValues.push(id);
+  const setClause = setValues.join(', ');
+
+  const result = await pool.query(
+    `UPDATE utilisateurs SET ${setClause} WHERE id=$${valueIndex} RETURNING id, nom_prenom, email, telephone`,
+    queryValues
+  );
+
   if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
 
   res.json(result.rows[0]);
@@ -135,7 +193,10 @@ router.delete('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!id || isNaN(parseInt(id))) return res.status(400).json({ error: 'ID invalide' });
 
-  const result = await pool.query('DELETE FROM utilisateurs WHERE id=$1 RETURNING *', [id]);
+  const result = await pool.query(
+    'DELETE FROM utilisateurs WHERE id=$1 RETURNING id, nom_prenom, email, telephone',
+    [id]
+  );
   if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
 
   res.json({ message: 'Utilisateur supprimé avec succès', deletedUser: result.rows[0] });
@@ -150,7 +211,10 @@ router.delete('/', asyncHandler(async (req, res) => {
   if (validIds.length===0) return res.status(400).json({ error: 'Aucun ID valide fourni' });
 
   const placeholders = validIds.map((_, i)=>`$${i+1}`).join(',');
-  const result = await pool.query(`DELETE FROM utilisateurs WHERE id IN (${placeholders}) RETURNING *`, validIds);
+  const result = await pool.query(
+    `DELETE FROM utilisateurs WHERE id IN (${placeholders}) RETURNING id, nom_prenom, email, telephone`,
+    validIds
+  );
 
   res.json({ message: `${result.rows.length} utilisateur(s) supprimé(s)`, deletedUsers: result.rows });
 }));
@@ -167,6 +231,50 @@ router.get('/stats/summary', asyncHandler(async (req, res) => {
     withPhone: parseInt(withPhone.rows[0].with_phone),
     withoutPhone: parseInt(total.rows[0].total)-parseInt(withPhone.rows[0].with_phone)
   });
+}));
+
+// ===== Login endpoint =====
+router.post('/login', asyncHandler(async (req, res) => {
+  const { email, mot_de_passe } = req.body;
+
+  if (!email || !mot_de_passe) {
+    return res.status(400).json({ error: 'Email et mot de passe requis' });
+  }
+
+  // Récupérer l'utilisateur avec le mot de passe crypté
+  const result = await pool.query(
+    'SELECT * FROM utilisateurs WHERE email=$1',
+    [email.toLowerCase().trim()]
+  );
+
+  if (result.rows.length === 0) {
+    return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+  }
+
+  const user = result.rows[0];
+
+  // Vérifier le mot de passe avec bcrypt
+  const isPasswordValid = await bcrypt.compare(mot_de_passe, user.mot_de_passe);
+  if (!isPasswordValid) {
+    return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+  }
+
+  // Ne pas renvoyer le mot de passe
+  const { mot_de_passe: _, ...userWithoutPassword } = user;
+  res.json({ message: 'Connexion réussie', user: userWithoutPassword });
+}));
+
+// ===== Vérifier si email existe =====
+router.get('/check-email/:email', asyncHandler(async (req, res) => {
+  const { email } = req.params;
+  if (!email) return res.status(400).json({ error: 'Email requis' });
+
+  const result = await pool.query(
+    'SELECT EXISTS(SELECT 1 FROM utilisateurs WHERE email=$1) AS email_exists',
+    [email.toLowerCase()]
+  );
+
+  res.json({ emailExists: result.rows[0].email_exists });
 }));
 
 // Middleware erreurs
