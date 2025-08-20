@@ -2,6 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
+import userRouter from "./donnes/user.js";
+import contactRouter from "./donnes/Contact.js";
+import portfolioRouter from "./donnes/Portfolio.js";
+import reservationRouter from "./donnes/reservation.js";
 
 dotenv.config();
 
@@ -27,7 +31,10 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.send('✅ Serveur backend en marche');
 });
-
+app.use("/api/user", userRouter);
+app.use("/api/contact", contactRouter);
+app.use("/api/portfolio", portfolioRouter);
+app.use("/api/reservation", reservationRouter);
 
 // 🏥 Health check endpoint
 app.get('/api/health', (req, res) => {
