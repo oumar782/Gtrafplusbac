@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import bcrypt from 'bcrypt';
 
 const router = Router();
 
@@ -22,13 +21,10 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
   }
 
-  // Crypter le mot de passe
-  const saltRounds = 10;
-  const motDePasseCrypte = await bcrypt.hash(mot_de_passe, saltRounds);
-
+  // Le mot de passe est déjà crypté par le frontend, on le stocke tel quel
   const result = await pool.query(
     'INSERT INTO utilisateurs (nom_prenom, email, telephone, mot_de_passe) VALUES ($1, $2, $3, $4) RETURNING id, nom_prenom, email, telephone',
-    [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, motDePasseCrypte]
+    [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, mot_de_passe]
   );
 
   res.status(201).json(result.rows[0]);
@@ -120,10 +116,9 @@ router.put('/:id', asyncHandler(async (req, res) => {
     if (mot_de_passe.length < 6) {
       return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
     }
-    // Crypter le nouveau mot de passe
-    const motDePasseCrypte = await bcrypt.hash(mot_de_passe, 10);
+    // Le mot de passe est déjà crypté par le frontend
     query = 'UPDATE utilisateurs SET nom_prenom=$1, email=$2, telephone=$3, mot_de_passe=$4 WHERE id=$5 RETURNING id, nom_prenom, email, telephone';
-    values = [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, motDePasseCrypte, id];
+    values = [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, mot_de_passe, id];
   } else {
     query = 'UPDATE utilisateurs SET nom_prenom=$1, email=$2, telephone=$3 WHERE id=$4 RETURNING id, nom_prenom, email, telephone';
     values = [nom_prenom.trim(), email.toLowerCase().trim(), telephone?.trim() || null, id];
@@ -163,11 +158,6 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     if (field === 'email') {
       setValues.push(`email=$${valueIndex}`);
       queryValues.push(updates[field].toLowerCase().trim());
-    } else if (field === 'mot_de_passe') {
-      // Crypter le mot de passe
-      const motDePasseCrypte = await bcrypt.hash(updates.mot_de_passe, 10);
-      setValues.push(`mot_de_passe=$${valueIndex}`);
-      queryValues.push(motDePasseCrypte);
     } else {
       setValues.push(`${field}=$${valueIndex}`);
       queryValues.push(updates[field]?.trim() || null);
@@ -241,7 +231,7 @@ router.post('/login', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Email et mot de passe requis' });
   }
 
-  // Récupérer l'utilisateur avec le mot de passe crypté
+  // Récupérer l'utilisateur
   const result = await pool.query(
     'SELECT * FROM utilisateurs WHERE email=$1',
     [email.toLowerCase().trim()]
@@ -253,9 +243,8 @@ router.post('/login', asyncHandler(async (req, res) => {
 
   const user = result.rows[0];
 
-  // Vérifier le mot de passe avec bcrypt
-  const isPasswordValid = await bcrypt.compare(mot_de_passe, user.mot_de_passe);
-  if (!isPasswordValid) {
+  // Comparaison directe des mots de passe (déjà cryptés par le frontend)
+  if (mot_de_passe !== user.mot_de_passe) {
     return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
   }
 
