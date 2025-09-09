@@ -16,7 +16,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "https://www.gtrafplusgn.com/",
+      "https://www.gtrafplusgn.com",
       "https://admingtraf.vercel.app"
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
